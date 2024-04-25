@@ -7,7 +7,7 @@ CXX := g++
 CXXFLAGS := -Wall -Wextra -std=c++11
 
 # Libraries
-LIBS := -lsfml-graphics -lsfml-audio -lsfml-window -lsfml-system
+LIBS := -lsfml-graphics -lsfml-audio -lsfml-window -lsfml-system -lzip
 
 # Source files
 SRC := osu-parser.cpp
