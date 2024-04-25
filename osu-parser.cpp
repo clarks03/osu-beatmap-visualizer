@@ -50,7 +50,7 @@ int extract_zip(const string &compressed, const string &destination);
 float dist(vector<int> p1, vector<int> p2);
 
 int main() {
-
+  
     // Code for checking if any maps have been loaded
     // (Seeing if there exists a Songs/ directory here)
 
@@ -97,10 +97,8 @@ int main() {
         return 1;
     }
 
-    cout << "\n\n" << endl;
-
     // Now, we can ask the user which song they want to visualize
-    cout << "Which song would you like to visualize?" << endl;
+    cout << "\nWhich song would you like to visualize?" << endl;
     int i = 1;
     for (const auto &entry : fs::directory_iterator("Songs")) {
         cout << "\t" << i << ") " << entry.path().filename().string() << endl;
@@ -109,7 +107,6 @@ int main() {
     int idx;
     cin >> idx;
 
-    cout << "You selected: " << idx << endl;
     i = 1;
     string song_path;
     for (const auto &entry : fs::directory_iterator("Songs")) {
@@ -125,7 +122,6 @@ int main() {
     for (const auto &entry : fs::directory_iterator("Songs/" + song_path)) {
         if (entry.path().extension() != ".osu") continue;
         // only get the difficulty name
-        // cout << entry.path().filename().string().find(']') << endl;
         string file_name = entry.path().filename().string();
         string difficulty_name = file_name.substr(file_name.find("[") + 1, file_name.find(']') - file_name.find('[') - 1);
         cout << "\t" << i << ") " << difficulty_name << endl;
@@ -143,7 +139,6 @@ int main() {
         }
         i++;
     }
-    cout << difficulty_name << endl;
 
     // Parsing file
     ifstream osu_file;
@@ -304,7 +299,6 @@ int main() {
                         for (int j = n + 1; j <= i; j++) {
                             vector<int> object_j_position{hit_objects[j].x, hit_objects[j].y};
                             if (dist(n_end_point, object_j_position) < STACK_LENIENCE) {
-                                cout << "Something is reverting." << endl;
                                 hit_objects[j].stack_count -= offset;
                             }
                         }
@@ -316,10 +310,8 @@ int main() {
                 vector<int> object_n_position{object_n.x, object_n.y};
                 vector<int> object_i_position{object_i.x, object_i.y};
                 if (dist(object_n_position, object_i_position) < STACK_LENIENCE) {
-                    cout << "SOMETHING IS CHANGING!!!" << endl;
                     hit_objects[n].stack_count = object_i.stack_count + 1;
                     // object_n.stack_count = object_i.stack_count + 1;
-                    cout << object_n.stack_count << endl;
                     object_i = object_n;
                 }
             }
@@ -404,6 +396,19 @@ int main() {
     if (!approachcircle_texture.loadFromFile("approachcircle.png")) return 1;
     approachcircle_texture.setSmooth(true);
 
+    // Hitcircle numbers
+    vector<sf::Texture> numbers;
+    for (int i = 0; i < 10; i++) {
+        sf::Texture temp_num;
+        if (!temp_num.loadFromFile("default-" + to_string(i) + ".png")) return 1;
+        temp_num.setSmooth(true);
+        numbers.push_back(temp_num);
+    }
+
+    // other useful skin-related features
+    const int HIT_CIRCLE_OVERLAP = -2;
+    const bool HIT_CIRCLE_OVERLAY_ABOVE_NUMBER = true;
+
     // Hitsound
     sf::SoundBuffer hitsound_buffer;
     if (!hitsound_buffer.loadFromFile("untitled.mp3")) return 1;
@@ -482,7 +487,42 @@ int main() {
             hitcircleoverlay.setScale(sf::Vector2f(RADIUS * 2 / hitcircleoverlay_texture.getSize().x, RADIUS * 2 / hitcircleoverlay_texture.getSize().y));
             hitcircleoverlay.setPosition(hit_object.x - RADIUS, hit_object.y - RADIUS);
             hitcircleoverlay.setColor(sf::Color(255, 255, 255, opacity));
-            window.draw(hitcircleoverlay);
+            // window.draw(hitcircleoverlay);
+
+            // hit circle numbers
+            // WARNING: a lot of code!!
+            vector<sf::Sprite> current_num;
+            float combined_width = 0.f;
+            float max_height = 0.f;
+            for (int i = 0; i < to_string(hit_object.combo).size(); i++) {
+                int hit_circle_digit = stoi(to_string(hit_object.combo).substr(i, 1));
+
+                sf::Sprite digit;
+                digit.setTexture(numbers[hit_circle_digit]);
+                digit.setScale({0.8f * hitcircle.getScale().x, 0.8f * hitcircle.getScale().y});
+                digit.setColor(sf::Color(255, 255, 255, opacity));
+                current_num.push_back(digit);
+                combined_width += digit.getScale().x * numbers[hit_circle_digit].getSize().x;
+                if (digit.getScale().y * numbers[hit_circle_digit].getSize().y > max_height)
+                    max_height = digit.getScale().y * numbers[hit_circle_digit].getSize().y;
+                combined_width += HIT_CIRCLE_OVERLAP;
+            }
+            combined_width -= HIT_CIRCLE_OVERLAP;
+
+            float current_x = hit_object.x - (combined_width / 2.f);
+            float current_y = hit_object.y - (max_height / 2.f);
+
+            for (int i = 0; i < current_num.size(); i++) {
+                current_num[i].setPosition(current_x, current_y);
+                if (HIT_CIRCLE_OVERLAY_ABOVE_NUMBER) {
+                    window.draw(current_num[i]);
+                    window.draw(hitcircleoverlay);
+                } else {
+                    window.draw(hitcircleoverlay);
+                    window.draw(current_num[i]);
+                }
+                current_x += current_num[i].getScale().x * numbers[stoi(to_string(hit_object.combo).substr(i, 1))].getSize().x + HIT_CIRCLE_OVERLAP;
+            }
 
             // Drawing approach circle
             float scale_factor = linear_map(hit_object.time - delta_time, PREEMPT, 0, 5, 1);

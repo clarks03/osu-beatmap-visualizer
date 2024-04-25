@@ -52,13 +52,18 @@ make clean
 
 **Edit Apr. 25: Significant improvements to setup!!**
 
-To visualize a beatmap properly, you need 4 things:
+To visualize a beatmap properly, you need 5 things:
 1. A hitcircle
 2. A hitcircleoverlay
 3. An approachcircle
-4. A sound effect (could be hitsound or anything else)
+4. Hitcircle numbers
+5. A sound effect (could be hitsound or anything else)
 
-You can copy a hitcircle, hitcircleoverlay, and approachcircle, titles `hitcircle.png`, `hitcircleoverlay.png` and `approachcircle.png` respectively, from a pre-existing osu! skin to the repository directory.
+You can copy a hitcircle, hitcircleoverlay, and approachcircle, titles `hitcircle.png`, `hitcircleoverlay.png` and `approachcircle.png` respectively, from a pre-existing osu! skin to the repository directory. 
+
+You can also copy the hitcircle numbers to the repo directory. Most of the time these are named `default-<num>.png`, but it may vary depending on your skin. Make sure to check the `skin.ini` file first. 
+
+**NOTE:** make sure that you are copying in the **standard resolution** versions of the aforementioned skin elements. High-resolution elements (i.e. elements named `<thing>@2x.png`) will **NOT** work (yet, at least.)
 
 You can also copy a hitsound (or any other sound effect) to the repository directory, **ensuring that it is named `untitled.mp3`.
 
