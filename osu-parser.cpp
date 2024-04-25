@@ -352,8 +352,10 @@ int main() {
         
         if (hit_objects[i].stack_count > 0) stack_offset_temp++;
         else stack_offset_temp = 0;
-        hit_objects[i].x -= (stack_offset_temp * RADIUS / 10);  // NOTE: Not sure if this offset is canon
-        hit_objects[i].y -= (stack_offset_temp * RADIUS / 10);
+
+        // Multiplying by stack count here might not be right, but most of the time it's 1 anyways so it's fine
+        hit_objects[i].x -= (stack_offset_temp * stack_offset * hit_objects[i].stack_count);  
+        hit_objects[i].y -= (stack_offset_temp * stack_offset * hit_objects[i].stack_count);
     }
 
 
