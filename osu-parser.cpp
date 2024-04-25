@@ -10,7 +10,7 @@
 #include <zip.h>              // for unzipping .osz
 
 using namespace std;          // shorthand
-namespace fs = std::__fs::filesystem;
+namespace fs = std::filesystem;
 
 // Creating a class for hit objects
 
@@ -32,7 +32,13 @@ class HitObject {
         vector<string> hit_sample;
         int combo;
         Colour colour;
+        int stack_count;
 };
+
+// defining these constants for checking type of object
+const int HITCIRCLE_TYPE = 0;
+const int SLIDER_TYPE = 1;
+const int SPINNER_TYPE = 3;
 
 map<string, string> read_key_value(ifstream &stream, string delim);
 vector<vector<string>> read_comma_pairs(ifstream &stream);
@@ -41,6 +47,7 @@ float linear_map(float num, float start1, float end1, float start2, float end2);
 bool get_nth_bit(int num, int idx);
 int get_bit_range(int num, int start, int stop);
 int extract_zip(const string &compressed, const string &destination);
+float dist(vector<int> p1, vector<int> p2);
 
 int main() {
 
@@ -181,9 +188,13 @@ int main() {
         obj.time = stoi(hit_object[2]);
         obj.type = stoi(hit_object[3]);
         obj.hitsound = stoi(hit_object[4]);
-        obj.object_params = split(hit_object[5], ',');
+    
+        // Right now, this absorbs the hitSample into the objectParams...
+        for (int i = 5; i < hit_object.size(); i++) {
+            obj.object_params.push_back(hit_object[i]);
+        }
 
-        if (get_nth_bit(obj.type, 2) && !(get_nth_bit(obj.type, 3))) {
+        if (get_nth_bit(obj.type, 2) && !(get_nth_bit(obj.type, SPINNER_TYPE))) {
             int index_jump = get_bit_range(obj.type, 4, 6) + 1;
             starting_index = (starting_index + index_jump) % colours.size();
             current_combo = 1;
@@ -196,8 +207,12 @@ int main() {
         current_combo++;
         if (hit_object.size() < 7) obj.hit_sample = vector<string>{"0:0:0:0"};
         else obj.hit_sample = split(hit_object[6], ',');
+
+        // for stacking
+        obj.stack_count = 0;
         hit_objects.push_back(obj);
     }
+
 
     // Canon approach rate settings
     const float APPROACH_RATE = stof(difficulty.find("ApproachRate")->second);
@@ -217,6 +232,138 @@ int main() {
     // Canon circle size settings
     const float CIRCLE_SIZE = stof(difficulty.find("CircleSize")->second);
     const float RADIUS = 54.4 - 4.48 * CIRCLE_SIZE;
+
+    // backward pass for stacking algorithm
+    float stack_offset = RADIUS / 10;
+    const int STACK_LENIENCE = 3;
+    float stack_leniency = stof(general.find("StackLeniency")->second);
+
+    for (int i = hit_objects.size() - 1; i > 0; i--) {
+        int n = i;
+
+        HitObject object_i = hit_objects[i];
+
+        if (object_i.stack_count != 0 || get_nth_bit(object_i.type, SPINNER_TYPE)) continue;
+
+        if (get_nth_bit(object_i.type, HITCIRCLE_TYPE)) {
+            while (--n >= 0) {
+                HitObject object_n = hit_objects[n];
+
+                if (get_nth_bit(object_n.type, SPINNER_TYPE)) continue;
+
+                // getting the end time of the n'th object
+                int end_time = object_n.time;
+                if (get_nth_bit(object_n.type, SLIDER_TYPE)) {
+                    // We have: the length of the slider in pixels
+                    // We want: the velocity in ms/pixel
+
+                    // How to get slider velocity? We have a base SliderMulitplier, in hundreds of pixels/beat
+                    float slider_multiplier = stof(difficulty.find("SliderMultiplier")->second) * 100.f;
+
+                    // Now we want beats per minute/second/whatever
+                    // Unfortunately, we need to iterate over all timing points up until this point
+                    float ms_per_beat = 0.f;
+                    float inverse_slider_multiplier = -100.f;
+
+                    int idx = 0;
+                    for (const auto &timing_point : timing_points) {
+                        // if this event is past the time of this current object
+                        if (stoi(timing_point[0]) > object_n.time) break;
+                        if (timing_point[6] == "0") inverse_slider_multiplier = stof(timing_point[1]);
+                        else ms_per_beat = stof(timing_point[1]);
+                        idx++;
+                    }
+                    idx--; // now, idx represents the index of the latest timing point before object_n
+
+                    slider_multiplier *= -(100.f / inverse_slider_multiplier);
+
+                    // slider_velocity is in milliseconds per pixel
+                    float slider_velocity = ms_per_beat * (1 / slider_multiplier);
+
+                    // Now, we determine the slider length in pixels
+                    float slider_length = stof(object_n.object_params[2]);
+
+                    // finally, we multiply these two values togeter (slider_length, pixels) * (ms / pixel) to get # ms
+                    float duration = slider_length * slider_velocity;
+                    end_time += round(duration);
+                }
+
+                // cout << object_i.time - (PREEMPT * stack_leniency) << ", " << end_time << endl;
+
+                if (object_i.time - (PREEMPT * stack_leniency) > end_time) break;
+
+                // special case stuff
+                if (get_nth_bit(object_n.type, SLIDER_TYPE)) {
+                    vector<string> n_points = split(object_n.object_params[0], '|');
+                    // removing the first param; not important here
+                    n_points.erase(n_points.begin());
+                    vector<int> n_end_point{stoi(split(n_points[n_points.size() - 1], ':')[0]), stoi(split(n_points[n_points.size() - 1], ':')[1])};
+                    vector<int> object_i_position{object_i.x, object_i.y};
+                    if (dist(n_end_point, object_i_position) < STACK_LENIENCE) {
+                        int offset = object_i.stack_count - object_n.stack_count + 1;
+                        for (int j = n + 1; j <= i; j++) {
+                            vector<int> object_j_position{hit_objects[j].x, hit_objects[j].y};
+                            if (dist(n_end_point, object_j_position) < STACK_LENIENCE) {
+                                cout << "Something is reverting." << endl;
+                                hit_objects[j].stack_count -= offset;
+                            }
+                        }
+
+                        break;
+                    }
+                }
+
+                vector<int> object_n_position{object_n.x, object_n.y};
+                vector<int> object_i_position{object_i.x, object_i.y};
+                if (dist(object_n_position, object_i_position) < STACK_LENIENCE) {
+                    cout << "SOMETHING IS CHANGING!!!" << endl;
+                    hit_objects[n].stack_count = object_i.stack_count + 1;
+                    // object_n.stack_count = object_i.stack_count + 1;
+                    cout << object_n.stack_count << endl;
+                    object_i = object_n;
+                }
+            }
+        } else if (get_nth_bit(object_i.type, SLIDER_TYPE)) {
+            while (--n >= 0) {
+                HitObject object_n = hit_objects[n];
+
+                if (get_nth_bit(object_n.type, SPINNER_TYPE)) continue;
+
+                if (object_i.time - (PREEMPT * stack_leniency) > object_n.time) break;
+
+                vector<int> object_n_end_position;
+                if (get_nth_bit(object_n.type, SLIDER_TYPE)) {
+                    vector<string> n_points = split(object_n.object_params[0], '|');
+                    // removing the first param; not important here
+                    n_points.erase(n_points.begin());
+                    object_n_end_position = {stoi(split(n_points[n_points.size() - 1], ':')[0]), stoi(split(n_points[n_points.size() - 1], ':')[1])};
+                }else {
+                    object_n_end_position = {object_n.x, object_n.y};
+                }
+
+                if (dist(object_n_end_position, {object_i.x, object_i.y}) < STACK_LENIENCE) {
+                    hit_objects[n].stack_count = object_i.stack_count + 1;
+                    // object_n.stack_count = object_i.stack_count + 1;
+                    object_i = object_n;
+                }
+            }
+        }
+    }
+
+    // one more backward pass, this time actually setting the x, y coordinates
+
+    // NOTE: the first note of a stack (chronologically) has stack_count = 0, but all notes in the stack afterwards have stack_count != 0
+    // so this might mean that we need to do a backwards pass instead... not sure
+    // but I'm pretty sure the position stuff needs to be calculated in reverse
+    int stack_offset_temp = 0;
+    for (int i = hit_objects.size() - 1; i >= 0; i--) {
+        
+        if (hit_objects[i].stack_count > 0) stack_offset_temp++;
+        else stack_offset_temp = 0;
+        hit_objects[i].x -= (stack_offset_temp * RADIUS / 10);  // NOTE: Not sure if this offset is canon
+        hit_objects[i].y -= (stack_offset_temp * RADIUS / 10);
+    }
+
 
     // Adding some window settings
     sf::ContextSettings settings;
@@ -322,18 +469,7 @@ int main() {
             // Drawing hitcircle
             sf::Color circ_colour(hit_object.colour.r, hit_object.colour.g, hit_object.colour.b, opacity);
 
-            // Old code for drawing a plain circle
 
-            /*
-            sf::CircleShape circ((float) RADIUS);
-
-            sf::Color circ_colour(stoi(hit_object[hit_object.size() -3]), stoi(hit_object[hit_object.size() -2]), stoi(hit_object[hit_object.size() - 1]), opacity);
-            circ.setFillColor(circ_colour);
-            circ.setPosition(stoi(hit_object[0]) - RADIUS, stoi(hit_object[1]) - RADIUS);
-            window.draw(circ);
-            */
-
-            // New (AWESOME) hitcircle code
             sf::Sprite hitcircle;
             hitcircle.setTexture(hitcircle_texture);
             hitcircle.setScale(sf::Vector2f(RADIUS * 2 / hitcircle_texture.getSize().x, RADIUS * 2 / hitcircle_texture.getSize().y));
@@ -360,20 +496,6 @@ int main() {
             approachcircle.setPosition(hit_object.x - RADIUS * scale_factor, hit_object.y - RADIUS * scale_factor);
             approachcircle.setColor(circ_colour);
             window.draw(approachcircle);
-
-
-            // Old code for drawing a plain circle
-
-            /*
-            // First, we need to map the size
-            sf::CircleShape approachcirc(RADIUS * scale_factor);
-            // Transparent body, opaque border
-            approachcirc.setFillColor(sf::Color(0, 0, 0, 0));;
-            approachcirc.setOutlineColor(circ_colour);
-            approachcirc.setOutlineThickness(scale_factor);
-            approachcirc.setPosition(stoi(hit_object[0]) - (RADIUS * scale_factor), stoi(hit_object[1]) - (RADIUS * scale_factor));
-            window.draw(approachcirc);
-            */
 
         }
 
@@ -486,4 +608,9 @@ int extract_zip(const string &compressed, const string &destination) {
     zip_close(archive);
 
     return 0;
+}
+
+float dist(vector<int> p1, vector<int> p2) {
+    float d = (p2[0] - p1[0]) * (p2[0] - p1[0]) + (p2[1] - p1[1]) * (p2[1] - p1[1]);
+    return sqrt(d);
 }
